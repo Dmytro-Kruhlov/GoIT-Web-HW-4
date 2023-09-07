@@ -10,9 +10,10 @@ BASE_DIR = pathlib.Path()
 
 class HTTPHandler(BaseHTTPRequestHandler):
     def do_POST(self):
-        # self.send_html("message.html")
         body = self.rfile.read(int(self.headers["Content-Length"]))
+
         body = urllib.parse.unquote_plus(body.decode())
+
         self.write_data(body)
         self.send_response(302)
         self.send_header("Location", "index.html")
@@ -22,7 +23,9 @@ class HTTPHandler(BaseHTTPRequestHandler):
         value = {kay: value for kay, value in [el.split("=") for el in body.split("&")]}
         payload = {str(datetime.now()): value}
         try:
-            with open(BASE_DIR.joinpath("storage/data.json"), "r", encoding="utf-8") as fd:
+            with open(
+                BASE_DIR.joinpath("storage/data.json"), "r", encoding="utf-8"
+            ) as fd:
                 old_data = json.load(fd)
         except FileNotFoundError:
             old_data = {}
