@@ -1,37 +1,47 @@
 import json
+import logging
 import pathlib
+import socket
 import urllib.parse
 import mimetypes
 from datetime import datetime
 from http.server import HTTPServer, BaseHTTPRequestHandler
+from threading import Thread
 
 BASE_DIR = pathlib.Path()
+SERVER_IP = "127.0.0.1"
+SERVER_PORT = 5000
+
+
+def send_data_to_socket(body):
+    client_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    client_socket.sendto(body, (SERVER_IP, SERVER_PORT))
+    print(f"Send data {body}")
+    client_socket.close()
+
+
+def save_data(data):
+    body = urllib.parse.unquote_plus(data.decode())
+
+    value = {kay: value for kay, value in [el.split("=") for el in body.split("&")]}
+    payload = {str(datetime.now()): value}
+    try:
+        with open(BASE_DIR.joinpath("storage/data.json"), "r", encoding="utf-8") as fd:
+            old_data = json.load(fd)
+    except FileNotFoundError:
+        old_data = {}
+    payload.update(old_data)
+    with open(BASE_DIR.joinpath("storage/data.json"), "w", encoding="utf-8") as fd:
+        json.dump(payload, fd, ensure_ascii=False, indent=2)
 
 
 class HTTPHandler(BaseHTTPRequestHandler):
     def do_POST(self):
         body = self.rfile.read(int(self.headers["Content-Length"]))
-
-        body = urllib.parse.unquote_plus(body.decode())
-
-        self.write_data(body)
+        send_data_to_socket(body)
         self.send_response(302)
         self.send_header("Location", "index.html")
         self.end_headers()
-
-    def write_data(self, body):
-        value = {kay: value for kay, value in [el.split("=") for el in body.split("&")]}
-        payload = {str(datetime.now()): value}
-        try:
-            with open(
-                BASE_DIR.joinpath("storage/data.json"), "r", encoding="utf-8"
-            ) as fd:
-                old_data = json.load(fd)
-        except FileNotFoundError:
-            old_data = {}
-        payload.update(old_data)
-        with open(BASE_DIR.joinpath("storage/data.json"), "w", encoding="utf-8") as fd:
-            json.dump(payload, fd, ensure_ascii=False, indent=2)
 
     def do_GET(self):
         route = urllib.parse.urlparse(self.path)
@@ -42,9 +52,6 @@ class HTTPHandler(BaseHTTPRequestHandler):
             case "/message.html":
                 self.send_html("message.html")
             case _:
-                print(type(BASE_DIR))
-                print(route.path)
-                print(type(route.path))
                 file = BASE_DIR / route.path[1:]
                 if file.exists():
                     self.send_static(file)
@@ -79,5 +86,28 @@ def run(server=HTTPServer, handler=HTTPHandler):
         http_server.server_close()
 
 
+def run_socket_server(ip, port):
+    logging.info(f"Server start")
+    server_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    server = ip, port
+    server_socket.bind(server)
+
+    try:
+        while True:
+            data, address = server_socket.recvfrom(1024)
+            print(f"Receive data {data}")
+            save_data(data)
+
+    except KeyboardInterrupt:
+        logging.info("Socket server stopped")
+    finally:
+        server_socket.close()
+
+
 if __name__ == "__main__":
-    run()
+    logging.basicConfig(level=logging.INFO, format="%(threadName)s %(message)s")
+    thread_server = Thread(target=run)
+    thread_server.start()
+
+    thread_socket_server = Thread(run_socket_server(SERVER_IP, SERVER_PORT))
+    thread_socket_server.start()
